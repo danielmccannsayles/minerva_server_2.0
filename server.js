@@ -8,9 +8,16 @@ const PORT = 3000;
 const REV_AI_API_KEY =
   "02EAixTWWL4TaqwQGVIWW7MGB8l6bDuK1nmVR16yhCMA5qpzpLrMiIVjU4u5Cjk7fynW3pM9PmeJ9T9TFQ1BlgKGOnnE0"; // Replace with your Rev.ai API key
 
+// conversion stuff -ffmpeg
+const ffmpegStatic = require("ffmpeg-static");
+const ffmpeg = require("fluent-ffmpeg");
+
+// Tell fluent-ffmpeg where it can find FFmpeg - should avoid having to download it?
+ffmpeg.setFfmpegPath(ffmpegStatic);
+
 // Initialize Rev.ai client with audio configuration
 const audioConfig = new revai.AudioConfig(
-  "audio/x-raw",
+  "audio/x-wav",
   "interleaved",
   16000,
   "S16LE",
@@ -51,24 +58,55 @@ revAiStream.on("data", (data) => {
   });
 });
 revAiStream.on("warning", (warning) => {
-  console.log(`Warning: ${warning}`);
+  console.log(`RevAiStream Warning: ${warning}`);
+});
+revAiStream.on("error", (err) => {
+  console.log(`RevAiStream error : ${err}`);
 });
 revAiStream.on("end", () => {
-  console.log("End of Stream");
+  console.log("End of RevAi Stream");
 });
 
 // The req.body is a buffer. It seems like maybe usig this passthrough stream
 // will allow me to send the buffer as a stream
 var bufferStream = new PassThrough();
-bufferStream.pipe(revAiStream);
 bufferStream.on("error", (err) => {
-  console.error("PassThrough stream error:", err);
+  console.error("BufferStream error:", err);
 });
+
+//TODO: remove this -  Testing out by creating a file writer
+let wavWriter = fs.createWriteStream("./output/total.wav");
+let aacWriter = fs.createWriteStream("./output/total.aac");
+
+// Add ffmpeg - should take in the buffer and then send it to the revAi Stream
+const ffmpegStream = ffmpeg(bufferStream)
+  .inputFormat("aac")
+  .audioChannels(1)
+  .audioFrequency(44100)
+  .audioCodec("pcm_s32le")
+  .format("wav");
+
+ffmpegStream.on("end", () => {
+  console.log("File created successfully");
+});
+ffmpegStream.on("error", (err) => {
+  console.error("Error in ffmpeg conversion:", err);
+});
+ffmpegStream.on("stderr", (stderrLine) => {
+  console.log("FFmpeg stderr output:", stderrLine);
+});
+
+ffmpegStream.pipe(wavWriter);
+// ffmpegStream.pipe(revAiStream); // ffmpg only supports one output stream
+
+//Testing
+bufferStream.pipe(aacWriter);
 
 app.post("/audio", (req, res) => {
   console.log("*");
 
-  bufferStream.write(req.body);
+  bufferStream.push(req.body);
+  fs.writeFileSync("./output/single_packet.aac", req.body);
 
   res.send("\nAudio received successfully");
 });
