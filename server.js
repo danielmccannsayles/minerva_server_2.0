@@ -3,16 +3,15 @@ const bodyParser = require("body-parser");
 const fs = require("fs");
 const { PassThrough } = require("stream");
 const revai = require("revai-node-sdk");
+const ffmpegStatic = require("ffmpeg-static");
+const ffmpeg = require("fluent-ffmpeg");
+
 const app = express();
 const PORT = 3000;
 const REV_AI_API_KEY =
   "02EAixTWWL4TaqwQGVIWW7MGB8l6bDuK1nmVR16yhCMA5qpzpLrMiIVjU4u5Cjk7fynW3pM9PmeJ9T9TFQ1BlgKGOnnE0"; // Replace with your Rev.ai API key
 
-// conversion stuff -ffmpeg
-const ffmpegStatic = require("ffmpeg-static");
-const ffmpeg = require("fluent-ffmpeg");
-
-// Tell fluent-ffmpeg where it can find FFmpeg - should avoid having to download it?
+// Set ffmpeg path
 ffmpeg.setFfmpegPath(ffmpegStatic);
 
 // Initialize Rev.ai client with audio configuration
@@ -25,14 +24,14 @@ const audioConfig = new revai.AudioConfig(
 );
 
 // Use bodyParser to parse raw binary data
-app.use(bodyParser.raw({ type: "audio/aac", limit: "10mb" }));
-//** Moving stuff out - maybe this only needs to be done once */
+app.use(bodyParser.raw({ type: "audio/l16", limit: "10mb" }));
 
 // *** REV.ai SETUP
-
 const client = new revai.RevAiStreamingClient(REV_AI_API_KEY, audioConfig);
+
 // Create a stream for the Rev.ai client
 var revAiStream = client.start();
+
 // Handle events from the Rev.ai client
 client.on("close", (code, reason) => {
   console.log(`Connection closed, ${code}: ${reason}`);
@@ -46,16 +45,21 @@ client.on("connectFailed", (error) => {
 client.on("connect", (connectionMessage) => {
   console.log(`Connected with message: ${JSON.stringify(connectionMessage)}`);
 });
+
 // Process data received from Rev.ai
 revAiStream.on("data", (data) => {
   console.log(data);
-  fs.appendFile("transcriptions.json", JSON.stringify(data) + "\n", (err) => {
-    if (err) {
-      console.error("Error writing to file", err);
-    } else {
-      console.log("Transcription appended to file");
+  fs.appendFile(
+    "./output/transcriptions.json",
+    JSON.stringify(data) + "\n",
+    (err) => {
+      if (err) {
+        console.error("Error writing to file", err);
+      } else {
+        console.log("Transcription appended to file");
+      }
     }
-  });
+  );
 });
 revAiStream.on("warning", (warning) => {
   console.log(`RevAiStream Warning: ${warning}`);
@@ -67,25 +71,24 @@ revAiStream.on("end", () => {
   console.log("End of RevAi Stream");
 });
 
-// The req.body is a buffer. It seems like maybe usig this passthrough stream
-// will allow me to send the buffer as a stream
+// Buffer stream to handle incoming PCM data
 var bufferStream = new PassThrough();
 bufferStream.on("error", (err) => {
   console.error("BufferStream error:", err);
 });
 
-//TODO: remove this -  Testing out by creating a file writer
+// Create a write stream for the final WAV output
 let wavWriter = fs.createWriteStream("./output/total.wav");
-let aacWriter = fs.createWriteStream("./output/total.aac");
 
-// Add ffmpeg - should take in the buffer and then send it to the revAi Stream
+// FFmpeg stream to convert PCM to WAV
 const ffmpegStream = ffmpeg(bufferStream)
-  .inputFormat("aac")
+  .inputFormat("s16le")
   .audioChannels(1)
-  .audioFrequency(44100)
-  .audioCodec("pcm_s32le")
+  .audioFrequency(16000)
+  .audioCodec("pcm_s16le")
   .format("wav");
 
+// FFmpeg event handlers
 ffmpegStream.on("end", () => {
   console.log("File created successfully");
 });
@@ -95,18 +98,27 @@ ffmpegStream.on("error", (err) => {
 ffmpegStream.on("stderr", (stderrLine) => {
   console.log("FFmpeg stderr output:", stderrLine);
 });
+ffmpegStream.on("start", (commandLine) => {
+  console.log("FFmpeg process started:", commandLine);
+});
+ffmpegStream.on("progress", (progress) => {
+  console.log("FFmpeg progress:", progress);
+});
 
-ffmpegStream.pipe(wavWriter);
-// ffmpegStream.pipe(revAiStream); // ffmpg only supports one output stream
+// Create a stream to split the ffmpeg, because it can only output to 1 stream
+const splitStream = new PassThrough();
+ffmpegStream.pipe(splitStream);
 
-//Testing
-bufferStream.pipe(aacWriter);
+// Pipe the duplex stream to both wavWriter and revAiStream
+splitStream.pipe(wavWriter);
+splitStream.pipe(revAiStream);
 
 app.post("/audio", (req, res) => {
-  console.log("*");
+  console.log("Received audio chunk, size:", req.body.length);
+  console.log("First 16 bytes:", req.body.slice(0, 16).toString("hex"));
 
-  bufferStream.push(req.body);
-  fs.writeFileSync("./output/single_packet.aac", req.body);
+  // Write PCM data to buffer stream
+  bufferStream.write(req.body);
 
   res.send("\nAudio received successfully");
 });
