@@ -1,36 +1,35 @@
-const express = require("express");
-const bodyParser = require("body-parser");
-const fs = require("fs");
-const { PassThrough } = require("stream");
-const revai = require("revai-node-sdk");
+import express from "express";
+import parser from "body-parser";
+import fs from "fs";
+import { PassThrough } from "stream";
+import { AudioConfig, RevAiStreamingClient } from "revai-node-sdk";
+import { formatDocument } from "./processing.js";
+import { setupFolders } from "./setup_folders.js";
+import { REV_AI_API_KEY } from "./keys.js";
 
-// Initial setup
+// Set up output folder structure
+const outputPaths = setupFolders();
+
+// Set up Express
 const PORT = 3000;
-const REV_AI_API_KEY =
-  "02EAixTWWL4TaqwQGVIWW7MGB8l6bDuK1nmVR16yhCMA5qpzpLrMiIVjU4u5Cjk7fynW3pM9PmeJ9T9TFQ1BlgKGOnnE0"; // Replace with your Rev.ai API key
 const app = express();
+app.use(parser.raw({ type: "audio/l16", limit: "10mb" })); // Parse raw binary data
 
-// Use bodyParser to parse raw binary data
-app.use(bodyParser.raw({ type: "audio/l16", limit: "10mb" }));
-
-// Rev.ai - going to use streaming
-const audioConfig = new revai.AudioConfig(
+// Rev.ai
+const audioConfig = new AudioConfig(
   "audio/x-raw",
   "interleaved",
   16000,
   "S16LE",
   1
 );
-// Init client and start stream - TODO: make a function that re-starts the streaming if needed :).
-const client = new revai.RevAiStreamingClient(REV_AI_API_KEY, audioConfig);
+// TODO: make a function that re-starts the streaming when needed :).
+const client = new RevAiStreamingClient(REV_AI_API_KEY, audioConfig);
 var revAiStream = client.start();
 
 // Handle events from the Rev.ai client stream (send)
 client.on("close", (code, reason) => {
   console.log(`Connection closed, ${code}: ${reason}`);
-});
-client.on("httpResponse", (code) => {
-  console.log(`Streaming client received HTTP response with code: ${code}`);
 });
 client.on("connectFailed", (error) => {
   console.log(`Connection failed with error: ${error}`);
@@ -39,21 +38,52 @@ client.on("connect", (connectionMessage) => {
   console.log(`Connected with message: ${JSON.stringify(connectionMessage)}`);
 });
 
+// Has length of current file being written to
+let currentFileLength = 0;
+// Index of the current file being written to
+let currentFileIndex = 0;
+
 // Process events received from Rev.ai transcript (response) stream
 revAiStream.on("data", (data) => {
-  console.log(data);
   fs.appendFile(
-    "./output/transcriptions.jsonl",
+    `${outputPaths.raw}/transcriptions.jsonl`,
     JSON.stringify(data) + "\n",
     (err) => {
-      if (err) {
-        console.error("Error writing to file", err);
-      } else {
-        console.log("Transcription appended to file");
-      }
+      console.log(`Wrote transcription${err ? ` err:${err}` : ""}`);
     }
   );
+
+  // Handle partials - search for keywords
+  // Write finals to text document
+  if (data.type === "partial") {
+    const newWord = data.elements[data.elements.length - 1].value;
+    if (newWord.includes("Wake")) {
+      console.log("waking up");
+    }
+  } else if (data.type === "final") {
+    const sentenceArr = data.elements.map((element) => element.value);
+    const sentence = sentenceArr.join("");
+    fs.appendFile(
+      `${outputPaths.raw}/conversation_${currentFileIndex}.txt`,
+      sentence,
+      (err) => {
+        console.log(`Wrote raw conv to file${err ? ` err:${err}` : ""}`);
+      }
+    );
+    currentFileLength += sentence.length;
+  }
+
+  //TODO: change this from 200 to 500 or something longer. At 200 for testign
+  // every 500 characters format the old file and switch to a new one
+  if (currentFileLength >= 200) {
+    formatDocument(outputPaths, currentFileIndex);
+
+    // Incrememnt current index to go to a new file, and then zero current file Length
+    currentFileIndex++;
+    currentFileLength = 0;
+  }
 });
+
 revAiStream.on("warning", (warning) => {
   console.log(`RevAiStream Warning: ${warning}`);
 });
@@ -70,18 +100,14 @@ bufferStream.on("error", (err) => {
   console.error("BufferStream error:", err);
 });
 
-// Create a write stream for the final WAV output
-let rawWriter = fs.createWriteStream("./output/total.pcm");
+// Create a write stream for the total audio output
+let rawWriter = fs.createWriteStream(`${outputPaths.raw}/total.pcm`);
 
 // Pipe the duplex stream to both rawWriter and revAiStream
 bufferStream.pipe(rawWriter);
 bufferStream.pipe(revAiStream);
 
 app.post("/audio", (req, res) => {
-  console.log("*");
-  //   console.log("Received audio chunk, size:", req.body.length);
-  //   console.log("First 16 bytes:", req.body.slice(0, 16).toString("hex"));
-
   // Write PCM data to buffer stream
   bufferStream.write(req.body);
 
