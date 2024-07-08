@@ -1,50 +1,55 @@
-import fs from "fs";
-import { OPEN_API_KEY } from "./keys.js";
-import OpenAI from "openai";
+import fs from 'fs'
+import { OPEN_API_KEY } from './keys.js'
+import OpenAI from 'openai'
 
-const openaiClient = new OpenAI({ apiKey: OPEN_API_KEY });
+const openaiClient = new OpenAI({ apiKey: OPEN_API_KEY })
 
-async function getChatCompletion(messages) {
+async function getChatCompletion (
+  messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[]
+) {
   try {
     const response = await openaiClient.chat.completions.create({
-      model: "gpt-4",
+      model: 'gpt-4',
       messages: messages,
-      max_tokens: 300, // Dunno if this matters
-    });
+      max_tokens: 300 // Dunno if this matters
+    })
 
-    const completion = response.choices[0];
-    console.log("Completion:", completion);
-    return completion.message;
+    const completion = response.choices[0]
+    console.log('Completion:', completion)
+    return completion.message
   } catch (error) {
-    console.error("Error calling OpenAI API:", error);
+    console.error('Error calling OpenAI API:', error)
   }
 }
 
 /** Calls chat complete to reformat document. Passed in  */
-export async function formatDocument(outputPaths, index) {
-  console.log("formatting document");
+export async function formatDocument (
+  outputPaths: { raw: string; generated: string },
+  index: number
+) {
+  console.log('formatting document')
   const unformattedFile = fs.readFileSync(
     `${outputPaths.raw}/conversation_${index}.txt`,
-    "utf8"
-  );
+    'utf8'
+  )
   const messages = [
-    { role: "system", content: REFORMAT_PROMPT },
-    { role: "user", content: unformattedFile },
-  ];
+    { role: 'system', content: REFORMAT_PROMPT },
+    { role: 'user', content: unformattedFile }
+  ] as OpenAI.Chat.Completions.ChatCompletionMessageParam[]
 
-  const responsePromise = getChatCompletion(messages);
-  responsePromise.then((response) => {
-    console.log("response recieved: " + response.content);
+  const responsePromise = getChatCompletion(messages)
+  responsePromise.then(response => {
+    console.log('response recieved: ' + response?.content)
     fs.writeFile(
       `${outputPaths.generated}/note_${index}.md`,
-      response.content,
-      (err) => {
+      response?.content || '',
+      err => {
         console.log(
-          `Wrote reformatted notes to file${err ? ` err:${err}` : ""}`
-        );
+          `Wrote reformatted notes to file${err ? ` err:${err}` : ''}`
+        )
       }
-    );
-  });
+    )
+  })
 }
 
 const REFORMAT_PROMPT = `
@@ -77,4 +82,4 @@ Examples:
 *Note: Correct any obvious errors and enhance the note for clarity and utility.*
 
 ** Respond ONLY with the re-written string. **
-`;
+`
