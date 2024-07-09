@@ -1,117 +1,143 @@
 import express from 'express'
 import parser from 'body-parser'
-import fs from 'fs'
-import { PassThrough } from 'stream'
+import { Duplex, PassThrough } from 'stream'
 import { AudioConfig, RevAiStreamingClient } from 'revai-node-sdk'
-import { formatDocument } from './processing.js'
 import { setupFolders } from './setup_folders.js'
 import { REV_AI_API_KEY } from './keys.js'
-
-// Set up output folder structure
-const outputPaths = setupFolders()
+import { audioProcessing } from './audio_processing.js'
+import { OutputPaths } from './types.js'
+import { processTextListener } from './text_processing.js'
 
 // Set up Express
 const PORT = 3000
 const app = express()
 app.use(parser.raw({ type: 'audio/l16', limit: '10mb' })) // Parse raw binary data
 
-// Rev.ai
-const audioConfig = new AudioConfig(
-  'audio/x-raw',
-  'interleaved',
-  16000,
-  'S16LE',
-  1
-)
-// TODO: make a function that re-starts the streaming when needed :).
-const client = new RevAiStreamingClient(REV_AI_API_KEY, audioConfig)
-var revAiStream = client.start()
+// Global variables
+let revClient: RevAiStreamingClient | null = null
+let revAiStream: Duplex | null = null
+let bufferStream: PassThrough | null = null
+let outputPaths: OutputPaths
 
-// Handle events from the Rev.ai client stream (send)
-client.on('close', (code, reason) => {
-  console.log(`Connection closed, ${code}: ${reason}`)
-})
-client.on('connectFailed', error => {
-  console.log(`Connection failed with error: ${error}`)
-})
-client.on('connect', connectionMessage => {
-  console.log(`Connected with message: ${JSON.stringify(connectionMessage)}`)
-})
-
-// Has length of current file being written to
-let currentFileLength = 0
-// Index of the current file being written to
-let currentFileIndex = 0
-
-// Process events received from Rev.ai transcript (response) stream
-revAiStream.on('data', data => {
-  fs.appendFile(
-    `${outputPaths.raw}/transcriptions.jsonl`,
-    JSON.stringify(data) + '\n',
-    err => {
-      console.log(`Wrote transcription${err ? ` err:${err}` : ''}`)
-    }
+function startStreamingSession () {
+  // Rev.ai
+  const audioConfig = new AudioConfig(
+    'audio/x-raw',
+    'interleaved',
+    16000,
+    'S16LE',
+    1
   )
 
-  // Handle partials - search for keywords
-  // Write finals to text document
-  if (data.type === 'partial') {
-    const newWord = data.elements[data.elements.length - 1].value
-    if (newWord.includes('Wake')) {
-      console.log('waking up')
-    }
-  } else if (data.type === 'final') {
-    const sentenceArr = data.elements.map((element: any) => element.value)
-    const sentence = sentenceArr.join('')
-    fs.appendFile(
-      `${outputPaths.raw}/conversation_${currentFileIndex}.txt`,
-      sentence,
-      err => {
-        console.log(`Wrote raw conv to file${err ? ` err:${err}` : ''}`)
+  // New Rev client and stream
+  revClient = new RevAiStreamingClient(REV_AI_API_KEY, audioConfig)
+  revAiStream = revClient.start()
+
+  // Listen once for initialization
+  let connectedPromise: Promise<{ connected: boolean; error?: string }> =
+    new Promise((resolve, _) => {
+      revClient!.once('connectFailed', error => {
+        resolve({ connected: false, error })
+      })
+
+      revClient!.once('connect', connectionMessage => {
+        console.log(
+          `Connected with message: ${JSON.stringify(connectionMessage)}`
+        )
+        resolve({ connected: true })
+      })
+
+      setTimeout(() => {
+        resolve({
+          connected: false,
+          error: 'Took longer than 5 seconds to initiate'
+        })
+      }, 5000)
+    })
+
+  //Add listeners to audio stream
+  audioProcessing(revAiStream, outputPaths)
+
+  // Buffer stream to handle incoming PCM data
+  bufferStream = new PassThrough()
+  bufferStream.on('error', err => {
+    console.error('BufferStream error:', err)
+  })
+
+  // Pipe the duplex stream to both rawWriter and revAiStream
+  bufferStream.pipe(revAiStream)
+
+  return connectedPromise
+}
+
+/** Initiate a new recording stream
+ * Starts a new rev ai session.
+ * When the rev ai session is ready, responds with true.
+ * If it fails, or after a set amount of time, responds with false
+ */
+app.get('/startSession', async (_, res) => {
+  const response = await startStreamingSession()
+  if (response.connected) {
+    // Start a new folder path for this recording
+    outputPaths = setupFolders()
+    // Add text listener to revAiStream.
+    // Cast revAiStream since I believe it cannot be null here - since response was true
+    // TODO: ^ maybe make sure this is always true, or add error handling
+    processTextListener(revAiStream as Duplex, outputPaths)
+    res.sendStatus(200)
+  } else {
+    res.status(400).send(`Error starting session: ${response.error}`)
+  }
+})
+
+/** Closes rev.ai streaming session
+ * Returns a 400 if it takes longer than 5 seconds
+ * Returns a 200 if it closes
+ */
+app.get('/endSession', (_, res) => {
+  if (!revClient || !revAiStream || !bufferStream) {
+    res
+      .status(400)
+      .send("Stream wasn't initialized properly. Try re-intializing")
+  } else {
+    new Promise(resolve => {
+      // Create a timeout to resolve with false after 5 seconds
+      const timeout = setTimeout(() => {
+        resolve('took longer than 5 seconds to close')
+      }, 5000)
+
+      revClient!.once('close', () => {
+        clearTimeout(timeout) // Clear the timeout if the close event is triggered
+        resolve('closed')
+      })
+
+      revClient!.end()
+    }).then(result => {
+      // Reset all to null, so audio endpoint will fail
+      if (result === 'closed') {
+        revClient = null
+        revAiStream = null
+        bufferStream = null
+        res.sendStatus(200)
+      } else {
+        res.status(400).send(result)
       }
-    )
-    currentFileLength += sentence.length
-  }
-
-  // TODO: change this from 200 to 500 or something longer. At 200 for testign
-  // every 500 characters format the old file and switch to a new one
-  if (currentFileLength >= 200) {
-    formatDocument(outputPaths, currentFileIndex)
-
-    // Incrememnt current index to go to a new file, and then zero current file Length
-    currentFileIndex++
-    currentFileLength = 0
+    })
   }
 })
 
-revAiStream.on('warning', warning => {
-  console.log(`RevAiStream Warning: ${warning}`)
-})
-revAiStream.on('error', err => {
-  console.log(`RevAiStream error : ${err}`)
-})
-revAiStream.on('end', () => {
-  console.log('End of RevAi Stream')
-})
-
-// Buffer stream to handle incoming PCM data
-var bufferStream = new PassThrough()
-bufferStream.on('error', err => {
-  console.error('BufferStream error:', err)
-})
-
-// Create a write stream for the total audio output
-let rawWriter = fs.createWriteStream(`${outputPaths.raw}/total.pcm`)
-
-// Pipe the duplex stream to both rawWriter and revAiStream
-bufferStream.pipe(rawWriter)
-bufferStream.pipe(revAiStream)
-
+/** Stream audio from app to the server */
 app.post('/audio', (req, res) => {
-  // Write PCM data to buffer stream
-  bufferStream.write(req.body)
+  if (!revClient || !revAiStream || !bufferStream) {
+    res
+      .status(400)
+      .send("Stream wasn't initialized properly. Try re-intializing")
+  } else {
+    // Write PCM data to buffer stream
+    bufferStream.write(req.body)
 
-  res.send('\nAudio received successfully')
+    res.send('\nAudio received successfully')
+  }
 })
 
 app.listen(PORT, () => {

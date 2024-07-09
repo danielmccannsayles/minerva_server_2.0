@@ -1,5 +1,6 @@
 import path from 'path'
 import fs from 'fs'
+import { OutputPaths } from './types'
 
 // Get dirname: https://stackoverflow.com/a/64383997
 import { fileURLToPath } from 'url'
@@ -11,7 +12,7 @@ const __dirname = dirname(__filename)
 const rootDirectory = path.resolve(__dirname, '..')
 
 /** Creates a new folder for this run */
-export function setupFolders () {
+export function setupFolders (): OutputPaths {
   // Get the current timestamp
   const currentRun = `run_${new Date().toISOString().replace(/[:.]/g, '-')}`
 
