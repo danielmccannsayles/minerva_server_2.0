@@ -1,10 +1,11 @@
 import { Duplex } from 'stream'
 import fs from 'fs'
 import { formatDocument } from './llm_stuff.js'
+import { OutputPaths } from './types.js'
 
 export function processTextListener (
   revAiStream: Duplex,
-  outputPaths: { raw: string; generated: string }
+  outputPaths: OutputPaths
 ) {
   // Has length of current file being written to
   let currentFileLength = 0

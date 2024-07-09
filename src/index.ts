@@ -56,7 +56,7 @@ function startStreamingSession () {
     })
 
   //Add listeners to audio stream
-  audioProcessing(revAiStream, outputPaths)
+  audioProcessing(revAiStream)
 
   // Buffer stream to handle incoming PCM data
   bufferStream = new PassThrough()

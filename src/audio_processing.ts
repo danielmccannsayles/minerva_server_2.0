@@ -1,11 +1,6 @@
-import { Duplex, PassThrough } from 'stream'
-import { RevAiStreamingClient } from 'revai-node-sdk'
-import { processTextListener } from './text_processing.js'
+import { Duplex } from 'stream'
 
-export function audioProcessing (
-  revAiStream: Duplex,
-  outputPaths: { raw: string; generated: string }
-) {
+export function audioProcessing (revAiStream: Duplex) {
   revAiStream.on('warning', warning => {
     console.log(`RevAiStream Warning: ${warning}`)
   })
