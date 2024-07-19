@@ -1,12 +1,12 @@
 import express from 'express'
-import parser from 'body-parser'
+import parser, { json } from 'body-parser'
 import { Duplex, PassThrough } from 'stream'
 import { AudioConfig, RevAiStreamingClient } from 'revai-node-sdk'
 import { setupFolders } from './setup_folders.js'
-import { REV_AI_API_KEY } from './keys.js'
-import { audioProcessing } from './audio_processing.js'
-import { OutputPaths } from './types.js'
-import { processTextListener } from './text_processing.js'
+import { REV_AI_API_KEY } from './constants_and_types/keys.js'
+import { audioProcessing } from './processing/audio_processing.js'
+import { OutputPaths } from './constants_and_types/types.js'
+import { processTextListener } from './processing/text_processing.js'
 
 // Set up Express
 const PORT = 3000

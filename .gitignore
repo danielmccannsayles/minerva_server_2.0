@@ -1,4 +1,4 @@
 node_modules
 output/
-keys.js
+**/keys.ts
 dist/

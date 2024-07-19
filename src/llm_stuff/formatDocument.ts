@@ -1,7 +1,7 @@
 import fs from 'fs'
-import { OPEN_API_KEY } from './keys.js'
+import { OPEN_API_KEY } from '../constants_and_types/keys.js'
 import OpenAI from 'openai'
-import { OutputPaths } from './types.js'
+import { OutputPaths } from '../constants_and_types/types.js'
 
 const openaiClient = new OpenAI({ apiKey: OPEN_API_KEY })
 
@@ -12,7 +12,7 @@ async function getChatCompletion (
     const response = await openaiClient.chat.completions.create({
       model: 'gpt-4',
       messages: messages,
-      max_tokens: 300 // Dunno if this matters
+      max_tokens: 1000 // Dunno if this matters
     })
 
     const completion = response.choices[0]
@@ -31,7 +31,7 @@ export async function formatDocument (outputPaths: OutputPaths, index: number) {
     'utf8'
   )
   const messages = [
-    { role: 'system', content: REFORMAT_PROMPT },
+    { role: 'system', content: NEW_REFORMAT_PROMPT },
     { role: 'user', content: unformattedFile }
   ] as OpenAI.Chat.Completions.ChatCompletionMessageParam[]
 
@@ -49,6 +49,12 @@ export async function formatDocument (outputPaths: OutputPaths, index: number) {
     )
   })
 }
+
+const NEW_REFORMAT_PROMPT = `
+The following chat was transcribed from audio.
+Please fix any transcription errors. 
+Return only the corrected chat:
+`
 
 const REFORMAT_PROMPT = `
 You are a helpful assistant. I will send you a single line string created with speech to text. 
