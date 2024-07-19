@@ -42,9 +42,8 @@ export function processTextListener (
       currentFileLength += sentence.length
     }
 
-    // TODO: change this from 200 to 500 or something longer. At 200 for testign
-    // every 500 characters format the old file and switch to a new one
-    if (currentFileLength >= 200) {
+    // Every 500 characters format the old file and switch to a new one
+    if (currentFileLength >= 500) {
       formatDocument(outputPaths, currentFileIndex)
 
       // Incrememnt current index to go to a new file, and then zero current file Length
