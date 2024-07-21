@@ -32,14 +32,9 @@ export async function formatDocument (data: string, outputPaths: OutputPaths) {
 
   const responsePromise = getChatCompletion(messages)
   responsePromise.then(response => {
-    fs.appendFile(
+    fs.appendFileSync(
       `${outputPaths.generated}/formatted_note.md`,
-      response?.content || '',
-      err => {
-        console.log(
-          `Wrote reformatted notes to file${err ? ` err:${err}` : ''}`
-        )
-      }
+      response?.content || ''
     )
   })
 }

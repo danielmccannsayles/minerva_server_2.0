@@ -14,6 +14,7 @@ import {
 import { processTextListener } from './processing/text_processing.js'
 import { getAnswerStreaming } from './llm_stuff/getAnswerStreaming.js'
 import { ChatCompletionChunk } from 'openai/resources/index.js'
+import { formatDocument } from './llm_stuff/formatDocument.js'
 
 // Set up Express
 const PORT = 3000
@@ -111,44 +112,31 @@ app.get('/startSession', async (_, res) => {
 
 /**
  * Tell the agent to wake and get a response. Initiate getting a
- * response
+ * response. Recording session does not stop.
  */
 app.get('/wake', (req, res) => {
   if (isRespondingState.isResponding) return
   isRespondingState.isResponding = true
   console.log('wake endpoint hit')
 
-  // Wait 3 seconds max for stream to close
-  new Promise<void>(resolve => {
-    // Create a timeout to resolve with false after 5 seconds
-    const timeout = setTimeout(() => {
-      resolve()
-    }, 3000)
-
-    revAiStream?.once('end', () => {
-      clearTimeout(timeout) // Clear the timeout if the close event is triggered
-      resolve()
-    })
-  }).then(async () => {
+  // Wait for 3s to finish getting all transcription data. May need to wait longer
+  setTimeout(async () => {
     // Get the formatted notes. Add in the transciptionDataObject. Send this to the gpt api
     let formattedFile = ''
-    let ffPath = `${outputPaths.generated}/formatted_note.md`
+    const ffPath = `${outputPaths.generated}/formatted_note.md`
     if (fs.existsSync(ffPath)) {
       formattedFile = fs.readFileSync(ffPath, 'utf-8')
     }
-    let fChunk =
+    const fChunk =
       formattedFile.length > 4000 ? formattedFile.slice(-4000) : formattedFile
+    const extraData =
+      transcriptionDataObject.finalData + transcriptionDataObject.partialData
+
     console.log(
-      'Asking AI Assistnat for response, message: ' +
-        fChunk +
-        transcriptionDataObject.finalData +
-        transcriptionDataObject.partialData
+      'Asking AI Assistnat for response, message: ' + fChunk + extraData
     )
-    const chatResponse = await getAnswerStreaming(
-      fChunk +
-        transcriptionDataObject.finalData +
-        transcriptionDataObject.partialData
-    )
+    formatDocument(extraData, outputPaths)
+    const chatResponse = await getAnswerStreaming(fChunk + extraData)
 
     // Convert gpt response stream to text stream
     const textStream = new Transform({
@@ -169,16 +157,21 @@ app.get('/wake', (req, res) => {
     const writeStream = fs.createWriteStream('test.txt')
     textStream?.pipe(writeStream)
 
-    textStream?.on('data', data => {
-      console.log('text stream: ' + data)
+    let assistantResponse = ''
+    textStream?.on('data', (data: string) => {
+      assistantResponse += data
     })
     textStream?.on('finish', () => {
       console.log('finished textStream')
       isRespondingState.isResponding = false
+      const deliniatedAssistantResponse =
+        '\n <Assistant Response>\n' + assistantResponse + '\n <End Response>\n'
+      fs.appendFileSync(
+        `${outputPaths.generated}/formatted_note.md`,
+        deliniatedAssistantResponse
+      )
     })
-  })
-
-  // End session revClient.close() triggers the text_processing. Since isResponding is true, it will respond.
+  }, 3000)
 })
 
 //app.get('sleep') - cancels the wake. Reattaches the listener
