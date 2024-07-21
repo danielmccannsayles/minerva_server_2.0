@@ -1,12 +1,19 @@
 import express from 'express'
-import parser, { json } from 'body-parser'
-import { Duplex, PassThrough } from 'stream'
+import parser from 'body-parser'
+import fs from 'fs'
+import { Duplex, PassThrough, Transform } from 'stream'
 import { AudioConfig, RevAiStreamingClient } from 'revai-node-sdk'
 import { setupFolders } from './setup_folders.js'
 import { REV_AI_API_KEY } from './constants_and_types/keys.js'
 import { audioProcessing } from './processing/audio_processing.js'
-import { OutputPaths } from './constants_and_types/types.js'
+import {
+  OutputPaths,
+  RespondingState,
+  TranscriptionDataObject
+} from './constants_and_types/types.js'
 import { processTextListener } from './processing/text_processing.js'
+import { getAnswerStreaming } from './llm_stuff/getAnswerStreaming.js'
+import { ChatCompletionChunk } from 'openai/resources/index.js'
 
 // Set up Express
 const PORT = 3000
@@ -18,6 +25,13 @@ let revClient: RevAiStreamingClient | null = null
 let revAiStream: Duplex | null = null
 let bufferStream: PassThrough | null = null
 let outputPaths: OutputPaths
+
+// Global states - objects are passed by reference
+let isRespondingState: RespondingState = { isResponding: false }
+let transcriptionDataObject: TranscriptionDataObject = {
+  partialData: '',
+  finalData: ''
+}
 
 function startStreamingSession () {
   // Rev.ai
@@ -81,14 +95,93 @@ app.get('/startSession', async (_, res) => {
     // Start a new folder path for this recording
     outputPaths = setupFolders()
     // Add text listener to revAiStream.
+    // Pass in global isRespondingState - it's an obj so passes reference
     // Cast revAiStream since I believe it cannot be null here - since response was true
     // TODO: ^ maybe make sure this is always true, or add error handling
-    processTextListener(revAiStream as Duplex, outputPaths)
+    processTextListener(
+      transcriptionDataObject,
+      revAiStream as Duplex,
+      outputPaths
+    )
     res.sendStatus(200)
   } else {
     res.status(400).send(`Error starting session: ${response.error}`)
   }
 })
+
+/**
+ * Tell the agent to wake and get a response. Initiate getting a
+ * response
+ */
+app.get('/wake', (req, res) => {
+  if (isRespondingState.isResponding) return
+  isRespondingState.isResponding = true
+  console.log('wake endpoint hit')
+
+  // Wait 3 seconds max for stream to close
+  new Promise<void>(resolve => {
+    // Create a timeout to resolve with false after 5 seconds
+    const timeout = setTimeout(() => {
+      resolve()
+    }, 3000)
+
+    revAiStream?.once('end', () => {
+      clearTimeout(timeout) // Clear the timeout if the close event is triggered
+      resolve()
+    })
+  }).then(async () => {
+    // Get the formatted notes. Add in the transciptionDataObject. Send this to the gpt api
+    let formattedFile = ''
+    let ffPath = `${outputPaths.generated}/formatted_note.md`
+    if (fs.existsSync(ffPath)) {
+      formattedFile = fs.readFileSync(ffPath, 'utf-8')
+    }
+    let fChunk =
+      formattedFile.length > 4000 ? formattedFile.slice(-4000) : formattedFile
+    console.log(
+      'Asking AI Assistnat for response, message: ' +
+        fChunk +
+        transcriptionDataObject.finalData +
+        transcriptionDataObject.partialData
+    )
+    const chatResponse = await getAnswerStreaming(
+      fChunk +
+        transcriptionDataObject.finalData +
+        transcriptionDataObject.partialData
+    )
+
+    // Convert gpt response stream to text stream
+    const textStream = new Transform({
+      writableObjectMode: true,
+      transform (chunk: ChatCompletionChunk, encoding, callback) {
+        const finishReason = chunk.choices[0].finish_reason
+        if (finishReason) {
+          if (finishReason !== 'stop') console.log(finishReason)
+          // End stream
+          this.push(null)
+          return callback()
+        }
+        this.push(chunk.choices[0].delta.content ?? 'ERR')
+        callback()
+      }
+    })
+    chatResponse?.pipe(textStream)
+    const writeStream = fs.createWriteStream('test.txt')
+    textStream?.pipe(writeStream)
+
+    textStream?.on('data', data => {
+      console.log('text stream: ' + data)
+    })
+    textStream?.on('finish', () => {
+      console.log('finished textStream')
+      isRespondingState.isResponding = false
+    })
+  })
+
+  // End session revClient.close() triggers the text_processing. Since isResponding is true, it will respond.
+})
+
+//app.get('sleep') - cancels the wake. Reattaches the listener
 
 /** Closes rev.ai streaming session
  * Returns a 400 if it takes longer than 5 seconds

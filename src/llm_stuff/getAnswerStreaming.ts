@@ -1,4 +1,4 @@
-import fs from 'fs'
+import { Readable, Stream } from 'stream'
 import { OPEN_API_KEY } from '../constants_and_types/keys.js'
 import OpenAI from 'openai'
 
@@ -15,30 +15,21 @@ async function getChatStream (
       stream: true
     })
 
-    // The response is an async iterable
-    for await (const chunk of response) {
-      const { choices } = chunk
-      const content = choices[0]?.delta?.content
-      if (content) {
-        console.log(content)
-      }
-    }
-
-    console.log('Stream finished.')
+    return Readable.from(response)
   } catch (error) {
     console.error('Error calling OpenAI API:', error)
   }
 }
 
-export function getAnswerStreaming (userMessage: string) {
+export async function getAnswerStreaming (
+  userMessage: string
+): Promise<Readable | undefined> {
   console.log('starting to stream')
   const messages = [
     { role: 'system', content: ANSWER_PROMPT },
     { role: 'user', content: userMessage }
   ] as OpenAI.Chat.Completions.ChatCompletionMessageParam[]
-  getChatStream(messages).then(() => {
-    console.log('finished streaming I think?')
-  })
+  return await getChatStream(messages)
 }
 
 const ANSWER_PROMPT = `

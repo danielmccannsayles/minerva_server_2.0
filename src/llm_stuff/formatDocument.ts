@@ -16,7 +16,6 @@ async function getChatCompletion (
     })
 
     const completion = response.choices[0]
-    console.log('Completion:', completion)
     return completion.message
   } catch (error) {
     console.error('Error calling OpenAI API:', error)
@@ -24,22 +23,17 @@ async function getChatCompletion (
 }
 
 /** Calls chat complete to reformat document. Passed in  */
-export async function formatDocument (outputPaths: OutputPaths, index: number) {
+export async function formatDocument (data: string, outputPaths: OutputPaths) {
   console.log('formatting document')
-  const unformattedFile = fs.readFileSync(
-    `${outputPaths.raw}/conversation_${index}.txt`,
-    'utf8'
-  )
   const messages = [
     { role: 'system', content: NEW_REFORMAT_PROMPT },
-    { role: 'user', content: unformattedFile }
+    { role: 'user', content: data }
   ] as OpenAI.Chat.Completions.ChatCompletionMessageParam[]
 
   const responsePromise = getChatCompletion(messages)
   responsePromise.then(response => {
-    console.log('response recieved: ' + response?.content)
-    fs.writeFile(
-      `${outputPaths.generated}/note_${index}.md`,
+    fs.appendFile(
+      `${outputPaths.generated}/formatted_note.md`,
       response?.content || '',
       err => {
         console.log(
