@@ -31,7 +31,7 @@ export function processTextListener (
     }
 
     // Call format and reset
-    if (transcriptionDataObject.finalData.length >= 100) {
+    if (transcriptionDataObject.finalData.length >= 300) {
       formatDocument(transcriptionDataObject.finalData, outputPaths)
       transcriptionDataObject.finalData = '' // Reset data after API call
     }

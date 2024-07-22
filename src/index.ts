@@ -15,6 +15,17 @@ import { processTextListener } from './processing/text_processing.js'
 import { getAnswerStreaming } from './llm_stuff/getAnswerStreaming.js'
 import { ChatCompletionChunk } from 'openai/resources/index.js'
 import { formatDocument } from './llm_stuff/formatDocument.js'
+import {
+  convertTextToSpeech,
+  textStreamToAudioStream
+} from './llm_stuff/text_to_speech.js'
+import path from 'path'
+
+//TODO: remove this
+import { fileURLToPath } from 'url'
+import { dirname } from 'path'
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
 
 // Set up Express
 const PORT = 3000
@@ -154,9 +165,18 @@ app.get('/wake', (req, res) => {
       }
     })
     chatResponse?.pipe(textStream)
-    const writeStream = fs.createWriteStream('test.txt')
-    textStream?.pipe(writeStream)
+    // TTS - currently writing to output file
+    const audioStream = textStreamToAudioStream(textStream)
+    // const writableStream = fs.createWriteStream('stitched_output_audio.mp3')
+    // audioStream.pipe(writableStream)
 
+    // Pipe audio to response
+    res.setHeader('Content-Type', 'audio/mpeg') // Set the correct content type for mp3
+    res.setHeader('Transfer-Encoding', 'chunked')
+    audioStream.pipe(res)
+    // res.sendFile(path.join(__dirname, '../stitched_output_audio.mp3'))
+
+    // Add text to accumulator, then write it to the formatted notes file
     let assistantResponse = ''
     textStream?.on('data', (data: string) => {
       assistantResponse += data
@@ -224,6 +244,13 @@ app.post('/audio', (req, res) => {
 
     res.send('\nAudio received successfully')
   }
+})
+
+/** Used to trigger whatever I'm currently testing */
+app.get('/test', async (req, res) => {
+  console.log('testing')
+  const text = 'Turn this text into sound. Woo!'
+  await convertTextToSpeech(text)
 })
 
 app.listen(PORT, () => {
