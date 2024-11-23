@@ -98,5 +98,10 @@
     /* Completeness */
     // "skipDefaultLibCheck": true,                      /* Skip type checking .d.ts files that are included with TypeScript. */
     "skipLibCheck": true                                 /* Skip type checking all .d.ts files. */
-  }
+  },
+  // Should append .js automatically to paths without it. this fixes having to add '.js' in ts files
+  "tsc-alias": { 
+  "resolveFullPaths": true,
+  "verbose": false
+},
 }

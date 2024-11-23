@@ -1,9 +1,9 @@
 import { Duplex } from 'stream'
-import { formatDocument } from '../llm_stuff/formatDocument.js'
+import { formatDocument } from '../llm_stuff/formatDocument'
 import {
   OutputPaths,
   TranscriptionDataObject
-} from '../constants_and_types/types.js'
+} from '../constants_and_types/types'
 
 export function processTextListener (
   // Has to be an object so we pass the reference

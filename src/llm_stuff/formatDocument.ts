@@ -1,9 +1,9 @@
 import fs from 'fs'
-import { OPEN_API_KEY } from '../constants_and_types/keys.js'
+import { OPEN_AI_KEY } from '../constants_and_types/keys'
 import OpenAI from 'openai'
-import { OutputPaths } from '../constants_and_types/types.js'
+import { OutputPaths } from '../constants_and_types/types'
 
-const openaiClient = new OpenAI({ apiKey: OPEN_API_KEY })
+const openaiClient = new OpenAI({ apiKey: OPEN_AI_KEY })
 
 async function getChatCompletion (
   messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[]

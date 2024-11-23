@@ -1,8 +1,8 @@
 import { Readable, Stream } from 'stream'
-import { OPEN_API_KEY } from '../constants_and_types/keys.js'
+import { OPEN_AI_KEY } from '../constants_and_types/keys'
 import OpenAI from 'openai'
 
-const openaiClient = new OpenAI({ apiKey: OPEN_API_KEY })
+const openaiClient = new OpenAI({ apiKey: OPEN_AI_KEY })
 
 async function getChatStream (
   messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[]

@@ -1,9 +1,9 @@
 import OpenAI from 'openai'
-import { OPEN_API_KEY } from '../constants_and_types/keys.js'
+import { OPEN_AI_KEY } from '../constants_and_types/keys'
 import { Readable, PassThrough } from 'stream'
 import fs from 'fs'
 
-const openaiClient = new OpenAI({ apiKey: OPEN_API_KEY })
+const openaiClient = new OpenAI({ apiKey: OPEN_AI_KEY })
 
 export async function convertTextToSpeech (text: string) {
   const response = await openaiClient.audio.speech.create({

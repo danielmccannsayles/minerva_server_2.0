@@ -3,22 +3,22 @@ import parser from 'body-parser'
 import fs from 'fs'
 import { Duplex, PassThrough, Transform } from 'stream'
 import { AudioConfig, RevAiStreamingClient } from 'revai-node-sdk'
-import { setupFolders } from './setup_folders.js'
-import { REV_AI_API_KEY } from './constants_and_types/keys.js'
-import { audioProcessing } from './processing/audio_processing.js'
+import { setupFolders } from './setup_folders'
+import { REV_AI_API_KEY } from './constants_and_types/keys'
+import { audioProcessing } from './processing/audio_processing'
 import {
   OutputPaths,
   RespondingState,
   TranscriptionDataObject
-} from './constants_and_types/types.js'
-import { processTextListener } from './processing/text_processing.js'
-import { getAnswerStreaming } from './llm_stuff/getAnswerStreaming.js'
-import { ChatCompletionChunk } from 'openai/resources/index.js'
-import { formatDocument } from './llm_stuff/formatDocument.js'
+} from './constants_and_types/types'
+import { processTextListener } from './processing/text_processing'
+import { getAnswerStreaming } from './llm_stuff/getAnswerStreaming'
+import { ChatCompletionChunk } from 'openai/resources/index'
+import { formatDocument } from './llm_stuff/formatDocument'
 import {
   convertTextToSpeech,
   textStreamToAudioStream
-} from './llm_stuff/text_to_speech.js'
+} from './llm_stuff/text_to_speech'
 import path from 'path'
 
 //TODO: remove this

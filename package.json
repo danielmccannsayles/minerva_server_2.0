@@ -9,7 +9,7 @@
     "list-daemon": "pm2 list",
     "stop-daemon": "pm2 stop ./dist/index.js",
     "delete-daemon": "pm2 delete ./dist/index.js",
-    "tsc": "tsc",
+    "tsc": "tsc && tsc-alias",
     "postinstall": "npm run tsc",
     "dev": "ts-node-dev — respawn — pretty — transpile-only index.ts"
   },
@@ -27,6 +27,7 @@
     "openai": "^4.52.3",
     "pm2": "^5.4.2",
     "revai-node-sdk": "^3.8.5",
+    "tsc-alias": "^1.8.10",
     "websocket": "^1.0.35"
   },
   "devDependencies": {
