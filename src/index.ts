@@ -2,10 +2,8 @@ import express from 'express'
 import parser from 'body-parser'
 import fs from 'fs'
 import { Duplex, PassThrough, Transform } from 'stream'
-import { AudioConfig, RevAiStreamingClient } from 'revai-node-sdk'
+import { RevAiStreamingClient } from 'revai-node-sdk'
 import { setupFolders } from './setup_folders'
-import { REV_AI_API_KEY } from './constants_and_types/keys'
-import { audioProcessing } from './processing/audio_processing'
 import {
   OutputPaths,
   RespondingState,
@@ -19,7 +17,7 @@ import {
   convertTextToSpeech,
   textStreamToAudioStream
 } from './llm_stuff/text_to_speech'
-import path from 'path'
+import { startStreamingSession } from './helpers/rev-streaming'
 
 //TODO: remove this
 import { fileURLToPath } from 'url'
@@ -45,64 +43,13 @@ let transcriptionDataObject: TranscriptionDataObject = {
   finalData: ''
 }
 
-function startStreamingSession () {
-  // Rev.ai
-  const audioConfig = new AudioConfig(
-    'audio/x-raw',
-    'interleaved',
-    16000,
-    'S16LE',
-    1
-  )
-
-  // New Rev client and stream
-  revClient = new RevAiStreamingClient(REV_AI_API_KEY, audioConfig)
-  revAiStream = revClient.start()
-
-  // Listen once for initialization
-  let connectedPromise: Promise<{ connected: boolean; error?: string }> =
-    new Promise((resolve, _) => {
-      revClient!.once('connectFailed', error => {
-        resolve({ connected: false, error })
-      })
-
-      revClient!.once('connect', connectionMessage => {
-        console.log(
-          `Connected with message: ${JSON.stringify(connectionMessage)}`
-        )
-        resolve({ connected: true })
-      })
-
-      setTimeout(() => {
-        resolve({
-          connected: false,
-          error: 'Took longer than 5 seconds to initiate'
-        })
-      }, 5000)
-    })
-
-  //Add listeners to audio stream
-  audioProcessing(revAiStream)
-
-  // Buffer stream to handle incoming PCM data
-  bufferStream = new PassThrough()
-  bufferStream.on('error', err => {
-    console.error('BufferStream error:', err)
-  })
-
-  // Pipe the duplex stream to both rawWriter and revAiStream
-  bufferStream.pipe(revAiStream)
-
-  return connectedPromise
-}
-
 /** Initiate a new recording stream
  * Starts a new rev ai session.
  * When the rev ai session is ready, responds with true.
  * If it fails, or after a set amount of time, responds with false
  */
 app.get('/startSession', async (_, res) => {
-  const response = await startStreamingSession()
+  const response = await startStreamingSession(revClient, revAiStream, bufferStream)
   if (response.connected) {
     // Start a new folder path for this recording
     outputPaths = setupFolders()
@@ -194,6 +141,7 @@ app.get('/wake', (req, res) => {
   }, 3000)
 })
 
+//TODO:
 //app.get('sleep') - cancels the wake. Reattaches the listener
 
 /** Closes rev.ai streaming session

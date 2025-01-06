@@ -1,7 +1,6 @@
 import OpenAI from 'openai'
 import { OPEN_AI_KEY } from '../constants_and_types/keys'
 import { Readable, PassThrough } from 'stream'
-import fs from 'fs'
 
 const openaiClient = new OpenAI({ apiKey: OPEN_AI_KEY })
 
@@ -24,9 +23,11 @@ export async function convertTextToSpeech (text: string) {
   return castStream
 }
 
-// Create a passthrough. As text is recieved (in chunks of 100 or line end), run it through the TTS.
+// Create a passthrough, to pipe the audioStream through it. 
+// As text is recieved (in chunks of 100 or line end), run it through the TTS.
 // Write returned audio to the passthrough. When that audio ends, resume textStream
 // When the text stream ends, handle the last bit
+// Returns the readable passThroughStream
 export function textStreamToAudioStream (textStream: Readable): Readable {
   const passThroughStream = new PassThrough()
   let accumulatedText = ''
@@ -36,7 +37,6 @@ export function textStreamToAudioStream (textStream: Readable): Readable {
     if (accumulatedText.length > 100 || accumulatedText.includes('\n')) {
       textStream.pause() // Pause the text stream to wait for the current chunk to be processed
       try {
-        // Convert it - cannot be null
         const audioStream = (await convertTextToSpeech(
           accumulatedText
         )) as Readable
@@ -54,19 +54,18 @@ export function textStreamToAudioStream (textStream: Readable): Readable {
   textStream.on('end', async () => {
     if (accumulatedText) {
       try {
-        // Convert it - cannot be null
         const audioStream = (await convertTextToSpeech(
           accumulatedText
         )) as Readable
         audioStream.pipe(passThroughStream, { end: false })
         audioStream.on('end', () => {
-          passThroughStream.end() // End the passThroughStream when the last chunk is processed
+          passThroughStream.end() // End when the last chunk is processed
         })
       } catch (err) {
         passThroughStream.emit('error', err)
       }
     } else {
-      passThroughStream.end() // End the passThroughStream if there's no remaining text
+      passThroughStream.end() // End if there's no remaining text
     }
   })
 
